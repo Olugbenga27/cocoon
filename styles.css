@@ -822,6 +822,37 @@ kbd {
   .inv-title { font-size: 23px; }
   .item { grid-template-columns: 66px minmax(0, 1fr) minmax(0, 1fr) 30px; }
   .item__checkin, .item__checkout { grid-column: span 2; }
+
+  /* iOS Safari auto-zooms any input whose font is under 16px on focus. */
+  .field input,
+  .field select,
+  .field textarea,
+  .item input { font-size: 16px; }
+
+  /* Bigger tap targets; buttons share the row on small screens. */
+  .btn { touch-action: manipulation; }
+  .toolbar .btn { flex: 1 1 40%; justify-content: center; }
+
+  /* The fixed-width invoice table would overflow the preview on narrow
+     screens, so let it scroll sideways instead of breaking the layout. */
+  .inv-items {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* The off-screen PDF stage renders at a fixed A4-ish width, so it must
+     always export as a real table, never as a scroll container. */
+  .pdf-stage .inv-items { display: table; overflow: visible; }
+}
+
+@media (max-width: 430px) {
+  .workspace { padding: 12px; gap: 16px; }
+  .site-header__inner { padding: 14px 16px; }
+  .card { padding: 13px 13px 15px; }
+  .invoice { padding: 18px 14px 16px; }
+  .brand__mark svg { width: 150px; height: auto; }
+  .toolbar { padding: 10px; gap: 7px; }
+  .inv-title { font-size: 21px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
