@@ -22,25 +22,23 @@
   };
 
   /**
-   * The hotel runs exactly two branches. Picking one pre-fills the street /
-   * city fields from its profile; a blank `address` stays blank until the
-   * hotel fills it in once (the edit is then remembered on this device).
+   * The hotel trades from a single branch: Ogudu. Picking it pre-fills the
+   * street / city fields from its profile; a blank `address` stays blank until
+   * the hotel fills it in once (the edit is then remembered on this device).
    */
   var DEFAULT_BRANCHES = [
     { label: 'Ogudu GRA, Lagos', city: 'Ogudu GRA, Lagos, Nigeria', address: '2 Adebayo Ogunrombi Close',
-      phone: '+234 701 449 6106', email: 'info@cocoonogudu.com', website: 'cocoonogudu.com' },
-    { label: 'Gbagada, Lagos', city: 'Gbagada, Lagos, Nigeria',
-      address: '9, 4/6 Oguntona Crescent, Gbagada Phase 1',
-      phone: '+234 8070 863696', email: 'info@cocoongbagada.com', website: 'https://cocoongbagada.com/' }
+      phone: '+234 701 449 6106', email: 'info@cocoonogudu.com', website: 'cocoonogudu.com' }
   ];
 
   /** Which editor fields each branch profile carries, and their state paths. */
   var BRANCH_FIELDS = ['city', 'address', 'phone', 'email', 'website'];
 
-  /* v2: the shipped Gbagada details changed (street, phone, website). A new
-     key ignores any stale branch profiles an older version remembered, so
-     selecting Gbagada always shows the official details first. */
-  var BRANCH_STORAGE_KEY = 'cocoon.hotel.branches.v2';
+  /* v3: the hotel went from two branches to one. A new storage key drops any
+     profile an older version remembered for the retired branch, so a retired
+     branch can never be offered again and the Ogudu details always come from
+     the shipped defaults first. */
+  var BRANCH_STORAGE_KEY = 'cocoon.hotel.branches.v3';
 
   var CURRENCIES = [
     { code: 'NGN', label: 'NGN \u2014 Nigerian Naira' },
@@ -65,6 +63,9 @@
 
   var STORAGE_KEY = 'cocoon.invoice.draft.v1';
   var SEQ_KEY = 'cocoon.invoice.sequence.v1';
+  /* Invoices and receipts filed from this app, kept on this device only. */
+  var HISTORY_KEY = 'cocoon.history.v1';
+  var MAX_HISTORY = 100;
   var DUE_DAYS = 14;
   var RECEIPT_STATUS = 'Paid — thank you';
   var INVOICE_STATUS = 'Due on receipt';
@@ -73,27 +74,32 @@
   var PDF_WIDTH = 794; /* A4 content width in CSS px at 96dpi */
 
   /**
-   * Room catalogue with the rates published for Cocoon Luxury Suites.
-   * `label` is how the room is written on an invoice line; `rate` is the
-   * nightly rate in the hotel's home currency (NGN).
+   * Room catalogue for Cocoon Luxury Suites Ogudu, taken from the rate card
+   * published on cocoonogudu.com/rooms-and-suites: every room of a category
+   * carries that category's published rate, so the name, the category and the
+   * rate always agree. The room picker, the rate card and every line item read
+   * from this single list. `label` is how the room is written on an invoice
+   * line; `rate` is the nightly rate in the hotel's home currency (NGN).
    */
   var ROOMS = [
-    { category: 'Studio', label: 'Studio', name: 'Soweto', rate: 45000 },
-    { category: 'Studio', label: 'Studio', name: 'Swahili', rate: 45000 },
-    { category: 'Standard', label: 'Standard Room', name: 'Zambezi', rate: 50000 },
-    { category: 'Standard', label: 'Standard Room', name: 'Addis Ababa', rate: 50000 },
-    { category: 'Standard', label: 'Standard Room', name: 'Kumasi', rate: 50000 },
-    { category: 'Standard', label: 'Standard Room', name: 'Kalakuta', rate: 50000 },
-    { category: 'Deluxe', label: 'Deluxe Room', name: 'Mandela', rate: 68000 },
-    { category: 'Deluxe', label: 'Deluxe Room', name: 'Zuma', rate: 57000 },
-    { category: 'Deluxe', label: 'Deluxe Room', name: 'Yankari', rate: 57000 },
-    { category: 'Deluxe', label: 'Deluxe Room', name: 'Badagry', rate: 57000 },
-    { category: 'Deluxe', label: 'Deluxe Room', name: 'Limpopo', rate: 57000 },
-    { category: 'Deluxe', label: 'Deluxe Room', name: 'Mombasa', rate: 57000 },
-    { category: 'Executive', label: 'Executive Room', name: 'Sankara', rate: 68000 },
-    { category: 'Executive', label: 'Executive Room', name: 'Kilimanjaro', rate: 68000 },
-    { category: 'Executive', label: 'Executive Room', name: 'Ikogosi', rate: 68000 },
-    { category: 'Presidential Suite', label: 'Presidential Suite', name: 'Iroko', rate: 90000 }
+    { category: 'Studio', label: 'Studio', name: 'Cape Town', rate: 50000 },
+    { category: 'Standard', label: 'Standard Room', name: 'Soweto', rate: 55000 },
+    { category: 'Standard', label: 'Standard Room', name: 'Swahili', rate: 55000 },
+    { category: 'Standard', label: 'Standard Room', name: 'Zambezi', rate: 55000 },
+    { category: 'Standard', label: 'Standard Room', name: 'Limpopo', rate: 55000 },
+    { category: 'Standard', label: 'Standard Room', name: 'Mombasa', rate: 55000 },
+    { category: 'Standard', label: 'Standard Room', name: 'Sankara', rate: 55000 },
+    { category: 'Superior', label: 'Superior Room', name: 'Kigali', rate: 60000 },
+    { category: 'Deluxe', label: 'Deluxe Room', name: 'Zuma', rate: 65000 },
+    { category: 'Deluxe', label: 'Deluxe Room', name: 'Yankari', rate: 65000 },
+    { category: 'Deluxe', label: 'Deluxe Room', name: 'Badagry', rate: 65000 },
+    { category: 'Deluxe', label: 'Deluxe Room', name: 'Kalakuta', rate: 65000 },
+    { category: 'Deluxe', label: 'Deluxe Room', name: 'Kumasi', rate: 65000 },
+    { category: 'Deluxe', label: 'Deluxe Room', name: 'Ikogosi', rate: 65000 },
+    { category: 'Executive', label: 'Executive Room', name: 'Mandela', rate: 75000 },
+    { category: 'Executive', label: 'Executive Room', name: 'Addis Ababa', rate: 75000 },
+    { category: 'Executive', label: 'Executive Room', name: 'Kilimanjaro', rate: 75000 },
+    { category: 'Presidential Suite', label: 'Presidential Suite', name: 'Iroko', rate: 95000 }
   ];
 
   /* --------------------------------------------------------------- helpers -- */
@@ -439,9 +445,9 @@
   }
 
   /**
-   * The branch picker is a closed <select> with exactly the two Cocoon
-   * branches — nothing else can be typed or saved. Old drafts that name a
-   * different branch fall back to the Ogudu flagship.
+   * The branch picker is a closed <select> with the one Cocoon branch —
+   * nothing else can be typed or saved. Old drafts that name a different or
+   * retired branch fall back to the Ogudu flagship.
    */
   function canonicalBranch(value) {
     var clean = oneLine(value).toLowerCase();
@@ -449,12 +455,11 @@
       for (var i = 0; i < DEFAULT_BRANCHES.length; i++) {
         if (DEFAULT_BRANCHES[i].label.toLowerCase() === clean) return DEFAULT_BRANCHES[i].label;
       }
-      if (clean.indexOf('gbagada') !== -1) return 'Gbagada, Lagos';
     }
     return DEFAULT_HOTEL.branch;
   }
 
-  /** Fill the branch <select> with the two fixed branch profiles. */
+  /** Fill the branch <select> with the fixed branch profile. */
   function fillBranchOptions() {
     var field = document.getElementById('field-branch');
     if (!field) return;
@@ -662,11 +667,11 @@
 
     /* ------------------------------------------------------------- rendering -- */
 
-  var LOGO_INVOICE_SVG =
-    '<svg class="inv-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" width="150" height="44" aria-hidden="true" focusable="false">' +
-    '<text x="0" y="45" font-family="Georgia, Times New Roman, serif" font-weight="normal" font-size="44" fill="#0f3d33">The </text>' +
-    '<text x="61" y="45" font-family="Georgia, Times New Roman, serif" font-weight="normal" font-size="44" fill="#e8d9a8">Cocoon</text>' +
-    '</svg>';
+  /* The hotel's own wordmark (assets/cocoon-logo.png, from cocoonogudu.com)
+     inlined as a data URI: the invoice, the PDF export and the offline app never
+     need the network, and html2canvas can draw it without tainting the canvas. */
+  var LOGO_INVOICE_PNG =
+    '<img class="inv-logo" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIIAAAAwCAYAAADdAaKDAAAACXBIWXMAAAsTAAALEwEAmpwYAAAUoklEQVR4nO1cC5gcRbUeUN5PFRRU0MvbIC9X1EDCnexU1XRPFuThyiPGbHamTvVuyIVIeESB9FT1bBKBAPnQay4IilfgAoIgKKKCIm9CEIhARFC88pZkM1PVswmEud+Z7p7tnZ3dnWz2Eh57vq+/bLq7qk+d+uuc/5yq3YRlWYfbtt0ZXtMsy5oR+/+n0+k0sW37FkLITolxef9KJpOZZdv23ZlM5i7btnsty3o2/PnuqVOntjDG2vDnZDK586bWdVzeIbFt+5FMJtMRv0cpzViWddc4ED5AYlnWMsuysvF7CIRMJvNry7I6bNv+bSaT+YVt219LJBKbR+9kMplDbdu+0Lbthy3Luowxdkh7e/uHNskgxmXjZSgg2La9BifZtu1TbduWlmU9jdwiEYBgN9u2n7As66YQLEtt235s0qRJH9lkAxmXjZNhgPASY2yP6F46nb7Rsixl2/ZWmUzmCsuyvht5AMbYdrZt39rW1nbiphjDuIyBDAOEP8RXuG3bl2AoSKfTu1uWdbdlWb+yLGsxXuGz5ZlMZtEmGcS4bLwMA4TfxdPHCAiEkD1t237Qsqyf27Z9ZXj9EJ9j2rlJBjEuGy/DASGeNWQymQgIO1mWdcvUqVOxzWbRc9d1N6/ve1zeQ2JZ1qP1QEin01Pr08dMJnMpAgF5wdSpUwHJYSaToS0tLVu0tbWhlzjrmGOO+eQmGcS4bLyk0xYWko6N3yPESqXT6euSyeT20T3btgsZyzqnUqlshpNv2/bFGctahtkD1iIsy7rGtu0dN8kgxmXj5SjG9vhy3QS2tLRtS0jbnvG6QFsyuYtt27tG/w+zh4Msy8qk0+kvTZw4cZt3Wvdx2UhZ7SZ3jq5KeA26973k9pVKPweIpFe17l3soUcalzYVBl50W7Y10j7Ml+wkLelZviQLtKJn9CmaKXuZz1QSg79RLxW3bdvVdTrWX5X5X96xcv3gglbFTX+06LEjij3JAypuYkQeg/qsLbDPl/LpE7RKzdOor2RzjaKZSg87oJkxDyXlBcnP6jxJa5k+3chUoZQn5/oyffxqSQ6ruMkPN9NHZYm91aqFZCe8VrvH7lwq2LuifUalkJHkfqPow8NeHr28d8HAAlHJS59gPPqYUfQlX9F7taTfGFLhSmKzXo9+0cjU5UbRfxhJ+4ykbxtFK0aR9VrRNVqyx9HQCLzh9NUeOWckfbVH7vA9Minebq1MH+hLehvqqz36tPbYOc/O3merhvq67uYl156gJb3UKPp3o6gJdMWLrTeKrtIeXel79KKiyw5otEiGtPe3J++uPTLXV3S5VrS33w60YiQ1vqLPG0V+XPLYUZXk8IDwPdpuFHsIL63oI0aSR7WifzR5eqXvkVNLLvs8Lr7mFFNsbf8gh7zuiwOhvCC1l1Hs5QHveKSoC62fGGzUCVsaRYVR9LUmvoPXIyVFkkPpW/bof47Uh1bkZV0g6ZoOlcRmRtFbBrwn6Vt9BUYH65v8sO+xE/0AACPq60u6UheYfX0TJfW1MnOQkfS3zdmBaN9jcytuPzerl5Jk/zFCP9pIcmNJkuMrS1u2GFY5nMCq8SR9RSv6B1/R38UvLcldJUkvrbjJraM2fSrVNsSHjxnUvyTfMYr+K3z+pq/o30qKLSnmCS/2sGONZGAk+aGv6F/QO1SNq+hzvpxyZKVBGuqr9GXhRPoImnp9A53ZdavPY4dEbRDEVU9Ur6+k+QEgqAKGcKMCm4TXC+gRjaQ536PHGUk6taJX+4r+qQY8Sd/oU5QNZ2ffO2oPI8kLCMCw3RtakV+VCmQ2hgTtTjlFK7bYV/QBrcibofcx2mMLKtB4EnHV1wDpUa0VucvIqldEr6LDMb5tJPF9Rf8HPcSQCupwpfoy9ZPKfHtHdJf1F6IpHr9LbmpC1b3XGRbdZB0IDkN3FzP85cUGsRUnYG2h9WCj2A2x/h5YdfbgMxARELSkz651Ww9uqK87Ycu4u14GLVtoRR6u17ecZ9MG6Ou2fsFX5Jl+z0L/oBeyQ+pXU6W9/UN9bnofI9mNsYld0eem9mtk4zcQBIr+LNbvX4qKHfu/cwaTauNN3l1LepFR9PXw3d5GCyxRBwSj6BPPLtlnq2JP6mO60Hpw2WPT0BvUjfmJ8lDeNnLZWpGfVhoo1kiq7lPSb2lJXw0/8I+iYvPi75QKk3c1ivwqfL7WV2wJkpuR+taSXKfDuFmU9FuDBl/zCOS5YRFeJ2sk+7Lx6JOhPquNR773IgyMnyVFfhYD7Q0j8ZUV7oQtSx4txAz9g0bvlT2mYiBYsbYJoqlVihhJ14agX15y2cfr3xkABEmfbNQPcg0t6R1a1kJOWRcYHcRrRgMElNfc5PZGsTat6NllxVrrY5nvka+UFFkdKvmCv5DsWVPOZR8v5enJRqVlUZJOZL3Rs17JWowkL4dG+2Nl0TE7DOh3lEDAVbxGWof7ip3pe/TkesNi+NCKlELD9q7z0l+qtV1ib1UusG8axVzjpSAeJle7yc+idwrbvdYI7EbSp0Od3y4pKgY8y5OpRpL5vkqfUfZaPzNgrJLeFPb7li/pkfX9NgOERDWUt+7tK3KzkUHo1YouXyNThw94SY8SCCOJr+jZsVVwdnR/DbrUagyLkzu6fLVi/xa9UwrYOj57tZ79G0VHBYSRROdT08K4vF577OIohfMXJT9tJL2zjsg9hFlQbax5epqvaES6MwP0dekX++M4eyhaEOhtfI8uqnPdbxS91qOjtuV8arLxWBi62QWDbNwkEFCWLW3Zwih6lY7AIMnKN+bHakZIdAKCxsYUCFqSa0Lip3FA1cEvbdvWeGRpI6KpFV0YuSvtpqyQAPXh6h0weMW+Hw78Oczxx0pfI+l51X492hdPhXG1IskdnC2Q66J3SgvZUVrRVXi/lCezB9ghn5pRa+eRpZUwuygXrJRRtDyYwJLHIpKMWZiRZHmo12316eSGAKHWXzx7kmx+3AAvhii/+bVhUpUNFa2iNIn8U7utBweKt37KKPpg44yDPPDKBWy7REQyg9iIyD19YL9kSfj+380CcthY6Bqml5eFgFyjYxlAWGcZDFyP9kbvlN3UXlrRV8Jn58f79hU9rQYeRc+otVFsXmM70EoUIjAlNYpFPOuBSmifWt8bCASUvh4kucQP9flLn5qyfzDQkE1jQaI0b/KuI/bUpBiP3hq593XhhK1xJ35Ue/VutjaQO2ru2GNHhPfXlVVqRrxfrPBFblTnB9cBRiOYEWGaFobIYpyla0mvbawv+WvtHRczniBF9gtkzgA7YHoctckzr3ZfpQRyhgZ9lyshZ8KswlfknhD4v6lPI0uKzI7p8+dmx4ve10j0cmS99uhZ0c2fhDGjVI7F6Y0VX6YXhRP8VkkyPOMYrDxJnQbeYL0v01+vDVDWkP56uUBS8X4xBkexHA0xVvoG9YOqvutwFdd0ccnxdXUFNLqvFTuz9o5H231FS0E4s9rj/SKRjtqVFLk5Cr9oa6PYikGeRtKroraYjhpFnwqfXTFIZ0kdX5ISklzfI482O1ZcaMgRwhB3fzUklyWy4SAGasXmNNFPU6LzJIWpSmjcOytuohbffI+cXlL0PmTbWpF7/Dw7MYqdmEFg/h62W6bdzG4DBu+ldzeKvRQa55Gx0jdk/2+F33047h37PHa0CfRdqfPkoaJHvrosrC28ftaRO/iSXRcYlRrcz4j3u6JaWSVRTeBffk8/+y+qKfubampHVhqPPK4lW7A6lrKukeT0qF7jS3J8vc7IJao1Hrzubm5/ImiX3NoocmWo02vFntR+iVLBnlBS5K/hynwY4/hojRmXopvcxXjkjpob9+j0miLIYF36yT5l7Y8EJipW4bZ2SaVOi0iUVuS79fkuMl0t2U9DfdcVpTVxLPRNBOHstsiLoVeIUkEMWQjAops8IL7Bhvd1gZzi416EJOu1pNc07FeRnv5qIb09HuvRTn2K7oseIiKJVc9ZBXxYVJL0z81u7DUrsbDSa1SqLYiPil4SucWyJN8Zq4/15Uk65vZewU2SoXbW0GWWFZvhS9YXguCZipfevdG7GB7CWI5GugOraWOhbylP/z0ifTrYWBpU0IqLztPptT0Xj/x93RDkNXTx90W8B918pWAPycfK+fSU6uZRkDn5RrLODdnYakZ0/9yUtSTfrN5co+i+US0eP6zzrXTZEPXtDRFc4WVFeoxHQ5ZKSr6iV/eplFWS6QNxFSBrDVwvuVn3x+J/DFe7D1ZoSEYl7dN5euHfYkWeUeuL/SrSVdNDVlPJ63GPYa0kn+tdkNoL3XnRZceWPXqlr5gJ+dXqYj41ozLExhPawZxHDottZKF3eLCvhwrcE8Ht/KpX8NhRvqIXYuYS7MqSN32PXDBURRbBgYW86lGBDfw9Eh8rrUHZYK0vyak1A/heGglaVBR53i8EBG9jBSuDJUW8WE2+ikJfkeeMxx7HekA8n9ZVQLJjR+pXS3aICUMaEjVMzZrdxx9W38UTt8EzEgNyfPRSkj6nFX2i+k1Zs1PFD7aoRTPl8yrRlfSFOoL4T9ynMB7D6uOq+DO/QBY32tHttwHtMJLeaiS9LU5emxGs/Eak248V/MKH7OIYGCq6wOZV3OQuG/KBRoKxL3B35DfVOv9gplwFX0mypf785Keb7RddeZ3xruhTbfturL6JKlFLHa4VvdZ41bSwLs2rrtZXtaJXxSuMzQiGMV+Rxcajz0dVvtgiqNYnjKQ3YRgdqg+0p1bpmX59Qcqj+WY9Qz8QyHo/SiFrH1hIdvIlvSbWuTGS/bKcJ6m7Rzgk0YxgzPfzmGqRJcZjP8ctY+NVd8jOx/MD9QWTZgS3uf3+gyPocu/DlK/+IM1oBE/8VLeIJV0UhqLf4iQZj34baw2954zuGy+6bdsWXTJJK3Kmr+gNGu2g6O1Yci5JdlLFTe42XPvK4vZtMGQNTsPZ/Y02pxrJsECIBNl6bGcxrJPTlWVFfmQ8cm5J0dOQddYumeruc5P7jMYoYyF9BWbj1q6WA1ZuL27D+iq1sM+j34rr6ys2u+S1HtXovMN7QZAXGElua1CMemRV3cbVUNIUEPBDuNljFLkdiZMeXAF7OzjwEF1srVZsRsPO3gHBdLQkpxxoFPl+lfXXudzB+tK3MVMaC06xKQT1LuWpwMMo/TyGvqUluWCoQyz1MgAI9RyhwQe3LinWqhW9EHfcsB5gZH28DFIi3FwZq4GOVvDAqnbpodXtYkVvD7ez1zXQF3nJpe9VICTCwzaBdyP3GEnvxfI1hoxm2xfllCNDAOEJpuZKBvhRjLn+RWwPJFHFntRkjHHRVS1ZjhDX3knBCX590TE7VLzWT2lJDirmB+qLF6aCm1rPsZD+0+cTttyQduj1q7bw2BFjVUQcl3EZl3F5n0r4C7xjWs4drQDAFnPmzNkmOULq3tnZucP06dM3OPUelyGku7t7+1xOOJ2dzpidfBqtcM4P5VxcAgBXcy7ObW9vH/LQUC4HlwOAmwiBjOB5t4D5PSnd3d27AYj7hRCj+WsvmzVp/BHf47zrCM7haQC4mHOnE8D5znArPpcTlHN+eNBW/JfjOAOOEwzxZwreNZ7vXSe5XO4TnIt7czlR22fhnO/HOT8NV9ns2bN35Jx3zJw5cy/OOXEc5yR035x3HwoAOQDYBcDpwvfwPgCcnsvlDgaAgwDgTMdxvg7gnCeEOJ5zXj0FNXfu3O3QC3V3d38u+iZAVw5AVLLZbO1sA/4SMuf8OMdxqr+XIIQ4hHNn2uzZs7finE/r7OycBNDNAMTznIvlADAj6AtmcM5/zLk4P/QUOCYhhLhKCHHBzJkzx+xU2vtGGgEhm80eLYTzDBoMPYYQzr2O4xzX0dHxWc7Fc5w7J3AubhJCnJ/L5Vrw3VmzZu2HRsdJcZzuaQDQzjloAOc3Qogs54IDOPd1dXV9JJfLZQDEo/jt6JuO43xKCHEZgHhBCDHPcZyPB8AS12G4SAQrH/v4PfIDAOeXQoierq6ulhAId3LuHCeE+KYQzp8459MB4HoAWAAAUwHEysDTdJ3S1dW1x1D2+MDKEB4hLYR4ctasWR8LnsM9aMxEsCrP5xweBxC/DifrC/guAOzd0dGxNRpcCPE1XP0AYlVXV1f1EC8A7M45PJXL5Vo5F3Mdx7m8XpfOzs5Pci4WCiFeFkJcghPOubgGALzw298AEHchdwAQNwM4F4b370C+0N4+ZxvOxQ0A4o+BnuJ2zsXdQoiJAOIlAFg0ffr0pvYlPnCCE42GwxUf3ctmhSWE82RHR8fO6BHiQMhmIYcTyrn47/b27u0RCJzDihkzZuyNK1gI8UwABOcEAFFyXXfL/m9VCd58APEIAEyJ6xH/WxQAcADnsBpBBAA/AnAWJAKAdqBHiICAbj64L+5EIADAtpzDLZzzOzEsAHSdibpgKBECOQUSUQTqqYckPogihPgq5+K0bDb7Gcdxzspmu/cRQjgY40PXfz+AWIpxWwjBkb3jZOE7nDsCQKwRQhwdgMZ5Fu8hOIQQJwPAngDiVQCYAwCzAKAXXXTADYTByYn0AIBJAM5TnMPv42EhEYIP3bgQIiWEOBdAvJzNZj/HOSzGyc9mxdEA4lYAeCD0FL8QQlyUCIBwA+dwLXIOADgL+w/ALDK5XG6y4ziHAQDLZvG5eBXHsinmYZML57wTV2JAAmExGhjAcQGcM5DkhYZfGlzwA1ydAHCKEOImAOecXA7mB5PCp3EuujEEhKz9fJyUHNI8gS4ZkBRehGweLwBxWXt7e80jILEUQvwOCWW9jjhZwYp1bgFwLkdiinogYITougJA/CQkp3NwhWez/FRc7di2q6vrKwDOtQiCgGCKeZyLn2MaimHBcZwjAeBGBA+CFXV+p+fgXSHostF4eHwMVyj+i3/6BycJf8biDf4/uhe1w/QNn6Nx8V/XdT8cuXD8PwIC0zRsj/3iv9ge38H78b5mzpy9KzJ+APFXAGj0V++regREEAb8oq7rultHuqCO+C7qEi86YRvUB3/G+/g+tot0xXCCfePP/192HpcRBI2fy8EZALCCc6ejiSbviPwfEN6WRVGCUZMAAAAASUVORK5CYII=" width="150" height="55" alt="" />';
 
   function findItem(id) {
     for (var i = 0; i < state.items.length; i++) {
@@ -1106,13 +1111,9 @@
 
     return '' +
       '<header class="inv-head">' +
-        '<div class="inv-brand">' + LOGO_INVOICE_SVG +
-          '<div>' +
-            '<p class="inv-name">' + escapeHtml(oneLine(hotel.name) || DEFAULT_HOTEL.name) + '</p>' +
-            (oneLine(hotel.tagline) ? '<p class="inv-tagline">' + escapeHtml(hotel.tagline) + '</p>' : '') +
-            (oneLine(hotel.branch) ? '<p class="inv-branch">' + escapeHtml(hotel.branch) + '</p>' : '') +
-          '</div>' +
-        '</div>' +
+        /* The wordmark alone brands the page: the hotel name, tagline and
+           branch are deliberately not printed beside the logo. */
+        '<div class="inv-brand">' + LOGO_INVOICE_PNG + '</div>' +
         '<div class="inv-from">' +
           '<p class="inv-from__name">Issued by</p>' + fromLines +
         '</div>' +
@@ -1161,8 +1162,6 @@
       '<footer class="inv-foot">' +
         '<span class="inv-foot__thanks">Thank you for staying with ' +
           escapeHtml(oneLine(hotel.name) || DEFAULT_HOTEL.name) + '.</span>' +
-        '<span>' + escapeHtml([oneLine(meta.number) ? '#' + oneLine(meta.number) : '', oneLine(hotel.email), oneLine(hotel.phone)]
-          .filter(function (part) { return part !== ''; }).join('  \u00b7  ')) + '</span>' +
       '</footer>';
   }
 
@@ -1200,6 +1199,7 @@
       else if (role === 'date') labels[i].textContent = title + ' date';
       else if (role === 'email-btn') labels[i].textContent = 'Email ' + title.toLowerCase();
       else if (role === 'new-btn') labels[i].textContent = 'New ' + title.toLowerCase();
+      else if (role === 'save-history-btn') labels[i].textContent = 'Save ' + title.toLowerCase() + ' to history';
     }
     var due = document.querySelector('[data-role-field="due-date"]');
     if (due) due.style.display = receipt ? 'none' : '';
@@ -1280,22 +1280,13 @@
     state.meta.docType = type === 'receipt' ? 'receipt' : 'invoice';
   }
 
-  function setupStateFromDraft() {
-    var draft = parseStoredDraft();
-    var meta = blankMeta();
-
-    state.hotel = assign({}, DEFAULT_HOTEL, (draft && draft.hotel) || {});
-    state.hotel.branch = canonicalBranch(state.hotel.branch);
-    state.meta = assign(meta, (draft && draft.meta) || {});
-    normaliseDocType();
-    state.billTo = assign({ name: '', room: '', stay: '', email: '', phone: '', address: '' }, (draft && draft.billTo) || {});
-
-    state.items = [];
-    var items = draft && draft.items;
+  /** Shapes stored items (from a draft or a history snapshot) into line rows. */
+  function loadItems(items) {
+    var out = [];
     if (Array.isArray(items)) {
       for (var i = 0; i < items.length; i++) {
         var raw = items[i] || {};
-        state.items.push({
+        out.push({
           id: raw.id ? String(raw.id) : createId(),
           description: raw.description === undefined || raw.description === null ? '' : stripStaySuffix(String(raw.description)),
           qty: raw.qty === undefined || raw.qty === null ? 1 : raw.qty,
@@ -1305,6 +1296,25 @@
         });
       }
     }
+    return out;
+  }
+
+  function setupStateFromDraft() {
+    var draft = parseStoredDraft();
+    var meta = blankMeta();
+
+    state.hotel = assign({}, DEFAULT_HOTEL, (draft && draft.hotel) || {});
+    var draftBranch = oneLine(state.hotel.branch);
+    state.hotel.branch = canonicalBranch(draftBranch);
+    /* A draft that names a retired branch keeps that branch's street / phone,
+       so hand the draft back to the profile of the branch it falls back to —
+       Ogudu details must never print alongside a retired branch's. */
+    if (draftBranch && state.hotel.branch !== draftBranch) applyBranchProfile(state.hotel.branch);
+    state.meta = assign(meta, (draft && draft.meta) || {});
+    normaliseDocType();
+    state.billTo = assign({ name: '', room: '', stay: '', email: '', phone: '', address: '' }, (draft && draft.billTo) || {});
+
+    state.items = loadItems(draft && draft.items);
 
     if (!state.meta.date) state.meta.date = todayISO();
     if (!state.meta.dueDate) state.meta.dueDate = addDaysISO(state.meta.date, DUE_DAYS);
@@ -1348,6 +1358,197 @@
     syncForm();
     render();
     toast('Hotel details restored to the Cocoon defaults.');
+  }
+
+  /* ------------------------------------------------------------- history -- */
+
+  /**
+   * Every invoice and receipt the front desk files is snapshotted into
+   * localStorage (cocoon.history.v1), so past documents can be reopened,
+   * duplicated or printed again — on this device only, never uploaded.
+   * Entries are keyed by document type + number: re-filing the same number
+   * updates its entry instead of piling up duplicates, and only the newest
+   * MAX_HISTORY entries are ever kept.
+   */
+  function readHistory() {
+    try {
+      var list = JSON.parse(readStorage(HISTORY_KEY) || '[]');
+      if (!Array.isArray(list)) return [];
+      return list.filter(function (entry) {
+        return !!entry && typeof entry === 'object' && !!entry.state;
+      });
+    } catch (err) {
+      return []; /* a corrupted history must never stop the app from booting */
+    }
+  }
+
+  function writeHistory(list) {
+    writeStorage(HISTORY_KEY, JSON.stringify((list || []).slice(0, MAX_HISTORY)));
+  }
+
+  function historyWord(entry) {
+    return entry && entry.docType === 'receipt' ? 'receipt' : 'invoice';
+  }
+
+  /** A full snapshot of the working document: hotel, meta, guest and lines. */
+  function historyEntry() {
+    var totals = computeTotals(state.items, state.meta);
+    return {
+      id: 'doc-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      savedAt: Date.now(),
+      docType: isReceipt() ? 'receipt' : 'invoice',
+      number: oneLine(state.meta.number),
+      date: oneLine(state.meta.date),
+      guest: oneLine(state.billTo.name),
+      totalCents: totals.totalCents,
+      currency: state.meta.currency || 'NGN',
+      state: {
+        hotel: assign({}, state.hotel),
+        meta: assign({}, state.meta),
+        billTo: assign({}, state.billTo),
+        items: state.items.map(function (item) { return assign({}, item); })
+      }
+    };
+  }
+
+  /** Files the current document; re-filing the same number updates its entry. */
+  function saveToHistory(options) {
+    var entry = historyEntry();
+    var key = (entry.docType + '#' + entry.number).toLowerCase();
+    var list = readHistory().filter(function (existing) {
+      if (!entry.number || !existing) return true;
+      var existingKey = ((existing.docType || 'invoice') + '#' + (existing.number || '')).toLowerCase();
+      return existingKey !== key;
+    });
+    list.unshift(entry);
+    writeHistory(list);
+    renderHistory();
+    if (!(options && options.silent)) {
+      toast('Saved ' + historyWord(entry) + (entry.number ? ' ' + entry.number : '') + ' to history.');
+    }
+    return entry;
+  }
+
+  function deleteHistoryEntry(id) {
+    writeHistory(readHistory().filter(function (entry) { return entry.id !== id; }));
+    renderHistory();
+  }
+
+  function clearHistory() {
+    writeHistory([]);
+    renderHistory();
+    toast('History cleared — nothing is filed on this device.');
+  }
+
+  /** Locale-aware "saved ..." stamp, with a safe fallback for odd input. */
+  function formatSavedAt(value) {
+    var date = new Date(Number(value) || 0);
+    if (isNaN(date.getTime())) return '';
+    try {
+      return date.toLocaleString(undefined, {
+        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+    } catch (err) {
+      return date.toISOString();
+    }
+  }
+
+  /** One row of the saved-documents list; every stored field is escaped. */
+  function historyRowHTML(entry) {
+    var receipt = entry.docType === 'receipt';
+    var title = receipt ? 'Receipt' : 'Invoice';
+    var number = oneLine(entry.number) || 'No number';
+    var guest = oneLine(entry.guest) || 'Guest';
+    var count = entry.state && Array.isArray(entry.state.items) ? entry.state.items.length : 0;
+    return '<li class="history__item" data-history-id="' + escapeHtml(String(entry.id || '')) + '">' +
+      '<span class="history__type' + (receipt ? ' history__type--receipt' : '') + '">' + title + '</span>' +
+      '<div class="history__body">' +
+        '<p class="history__title"><strong>#' + escapeHtml(number) + '</strong> &middot; ' + escapeHtml(guest) + '</p>' +
+        '<p class="history__meta">' + escapeHtml(formatDate(entry.date)) + ' &middot; ' +
+          count + (count === 1 ? ' item' : ' items') + ' &middot; saved ' +
+          escapeHtml(formatSavedAt(entry.savedAt)) + '</p>' +
+      '</div>' +
+      '<span class="history__total">' +
+        escapeHtml(formatMoney((Number(entry.totalCents) || 0) / 100, entry.currency)) + '</span>' +
+      '<span class="history__actions">' +
+        '<button type="button" class="btn btn--sm btn--soft" data-history-action="open">Open</button>' +
+        '<button type="button" class="btn btn--sm" data-history-action="duplicate">Duplicate</button>' +
+        '<button type="button" class="btn btn--sm btn--ghost btn--danger" data-history-action="delete">Delete</button>' +
+      '</span>' +
+    '</li>';
+  }
+
+  /** Rebuilds the saved-documents list from storage (empty state included). */
+  function renderHistory() {
+    if (!els.historyList) return;
+    var list = readHistory();
+    if (els.historyCount) {
+      els.historyCount.textContent = list.length + (list.length === 1 ? ' document' : ' documents');
+    }
+    if (list.length === 0) {
+      els.historyList.innerHTML =
+        '<li class="history__empty">Nothing filed yet &mdash; press <strong>Save to history</strong> ' +
+        'to keep this ' + docWord().toLowerCase() + ' (or any past one) on this device.</li>';
+      return;
+    }
+    els.historyList.innerHTML = list.map(function (entry) { return historyRowHTML(entry); }).join('');
+  }
+
+  /** Restores a filed snapshot into the editor; duplicate issues a new number. */
+  function openHistoryEntry(id, duplicate) {
+    var list = readHistory();
+    var entry = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === id) { entry = list[i]; break; }
+    }
+    if (!entry || !entry.state) return false;
+    var snapshot = entry.state;
+
+    state.hotel = assign({}, DEFAULT_HOTEL, snapshot.hotel || {});
+    var snapshotBranch = oneLine(state.hotel.branch);
+    state.hotel.branch = canonicalBranch(snapshotBranch);
+    if (snapshotBranch && state.hotel.branch !== snapshotBranch) applyBranchProfile(state.hotel.branch);
+    state.meta = assign(blankMeta(), snapshot.meta || {});
+    normaliseDocType();
+    state.billTo = assign({ name: '', room: '', stay: '', email: '', phone: '', address: '' }, snapshot.billTo || {});
+    state.items = loadItems(snapshot.items);
+    if (!state.meta.date) state.meta.date = todayISO();
+    if (!state.meta.dueDate) state.meta.dueDate = addDaysISO(state.meta.date, DUE_DAYS);
+    if (!state.meta.number) state.meta.number = nextInvoiceNumber();
+    if (state.items.length === 0) {
+      state.items.push({ id: createId(), description: '', qty: 1, price: '', checkin: '', checkout: '' });
+    }
+    if (duplicate) {
+      state.meta.number = nextInvoiceNumber();
+      state.meta.date = todayISO();
+      if (!isReceipt()) state.meta.dueDate = addDaysISO(state.meta.date, DUE_DAYS);
+      state.meta.status = isReceipt() ? RECEIPT_STATUS : INVOICE_STATUS;
+    }
+
+    syncForm();
+    renderItemRows();
+    render();
+    toast((duplicate ? 'Duplicated as ' : 'Opened ') + docWord().toLowerCase() + ' ' + state.meta.number + '.');
+    return true;
+  }
+
+  /** Open / duplicate / delete buttons inside the saved-documents list. */
+  function onHistoryClick(event) {
+    var target = event && event.target;
+    var button = target && target.closest ? target.closest('[data-history-action]') : null;
+    if (!button) return;
+    var row = button.closest('[data-history-id]');
+    if (!row) return;
+    var action = button.getAttribute('data-history-action');
+    var id = row.getAttribute('data-history-id');
+    if (action === 'delete') {
+      deleteHistoryEntry(id);
+      toast('Document removed from history.');
+    } else if (action === 'open') {
+      openHistoryEntry(id, false);
+    } else if (action === 'duplicate') {
+      openHistoryEntry(id, true);
+    }
   }
 
   /* ---------------------------------------------------------------- toast -- */
@@ -1832,6 +2033,10 @@
     els.rateCurrency = document.getElementById('rate-currency');
     els.rateCard = document.getElementById('rate-card');
     els.btnAddRoom = document.getElementById('btn-add-room');
+    els.btnSaveHistory = document.getElementById('btn-save-history');
+    els.btnHistoryClear = document.getElementById('btn-history-clear');
+    els.historyCount = document.getElementById('history-count');
+    els.historyList = document.getElementById('history-list');
   }
 
   function fillCurrencyOptions() {
@@ -1867,6 +2072,9 @@
     on(els.btnCopy, copySummary);
     on(els.btnNew, startNewInvoice);
     on(els.btnRestoreHotel, restoreHotelDefaults);
+    on(els.btnSaveHistory, function () { saveToHistory(); });
+    on(els.btnHistoryClear, clearHistory);
+    if (els.historyList) els.historyList.addEventListener('click', onHistoryClick);
     on(els.btnNextNumber, function () {
       state.meta.number = nextInvoiceNumber();
       syncForm();
@@ -1903,6 +2111,7 @@
     renderItemRows();
     bindEvents();
     render();
+    renderHistory();
     if (els.btnShare && supportsFileShare()) els.btnShare.removeAttribute('hidden');
   }
 
@@ -1943,6 +2152,9 @@
     removeItem: removeItem,
     render: render,
     renderItemRows: renderItemRows,
-    startNewInvoice: startNewInvoice
+    startNewInvoice: startNewInvoice,
+    readHistory: readHistory,
+    saveToHistory: saveToHistory,
+    openHistoryEntry: openHistoryEntry
   };
 })();

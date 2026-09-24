@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Cocoon Luxury Suites &mdash; Invoice Generator</title>
+  <title>Cocoon Luxury Suites Ogudu &mdash; Invoice Generator</title>
   <meta name="description" content="Create, preview, download as PDF and share invoices for Cocoon Luxury Suites Ogudu." />
-  <meta name="theme-color" content="#0f3d33" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 64'%3E%3Ctext x='0' y='45' font-family='Georgia,serif' font-size='44' fill='%230f3d33' font-weight='normal'%3EThe %3C/text%3E%3Ctext x='61' y='45' font-family='Georgia,serif' font-size='44' fill='%23e8d9a8' font-weight='normal'%3ECocoon%3C/text%3E%3C/svg%3E" />
+  <meta name="theme-color" content="#020101" />
+  <link rel="icon" href="assets/cocoon-logo.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -15,15 +15,12 @@
   <header class="site-header">
     <div class="site-header__inner">
       <div class="brand">
-      <span class="brand__mark" aria-hidden="true">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" width="160" height="47" focusable="false" role="img">
-          <title>The Cocoon wordmark</title>
-          <text x="0" y="45" font-family="Georgia, 'Times New Roman', serif" font-weight="normal" font-size="44" fill="#0f3d33">The </text>
-          <text x="61" y="45" font-family="Georgia, 'Times New Roman', serif" font-weight="normal" font-size="44" fill="#e8d9a8">Cocoon</text>
-        </svg>
+      <span class="brand__mark">
+        <img class="brand__logo" src="assets/cocoon-logo.png" width="130" height="48"
+          alt="The Cocoon Luxury Suites" />
       </span>
       <span class="brand__text">
-        <span class="brand__name">Cocoon Luxury Suites </span>
+        <span class="brand__name">Cocoon Luxury Suites Ogudu </span>
         <span class="brand__tagline">Luxury &middot; Service &middot; Excellence</span>
       </span>
     </div>
@@ -44,7 +41,7 @@
         <p class="card__hint">Saved on this device and printed on every invoice you create. Edit once, reuse forever.</p>
         <div class="grid grid--2">
           <label class="field field--wide">
-            <span class="field__label">Hotel name</span>
+            <span class="field__label">Hotel Name</span>
             <input type="text" data-path="hotel.name" placeholder="Cocoon Luxury Suites Ogudu" />
           </label>
           <label class="field">
@@ -219,6 +216,8 @@
           <option value="Executive Suite accommodation"></option>
           <option value="Deluxe Room accommodation"></option>
           <option value="Standard Room accommodation"></option>
+          <option value="Superior Room accommodation"></option>
+          <option value="Studio accommodation"></option>
           <option value="Presidential Suite accommodation"></option>
           <option value="Extra bed"></option>
           <option value="Late check-out fee"></option>
@@ -258,6 +257,15 @@
           </label>
         </div>
       </section>
+
+      <section class="card" id="history-card" aria-label="Invoice and receipt history">
+        <div class="card__head">
+          <h2>History <span class="card__badge" id="history-count">0 documents</span></h2>
+          <button type="button" class="btn btn--sm btn--ghost btn--danger" id="btn-history-clear">Clear all</button>
+        </div>
+        <p class="card__hint">Filed on this device only &mdash; open a past invoice or receipt to restore it, duplicate it for a new guest, or delete it.</p>
+        <ul class="history" id="history-list"></ul>
+      </section>
     </form>
 
     <section class="preview-pane" aria-label="Invoice preview and sharing">
@@ -290,6 +298,7 @@
         </button>
         <button type="button" class="btn btn--ghost" id="btn-print">Print</button>
         <button type="button" class="btn btn--ghost" id="btn-copy">Copy summary</button>
+        <button type="button" class="btn" id="btn-save-history"><span data-role-label="save-history-btn">Save invoice to history</span></button>
         <button type="button" class="btn btn--ghost btn--danger" id="btn-new"><span data-role-label="new-btn">New invoice</span></button>
       </div>
       <p class="toolbar__hint" id="toolbar-hint"></p>

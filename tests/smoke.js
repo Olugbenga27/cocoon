@@ -42,7 +42,7 @@ function notContains(label, haystack, needle) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function bootstrap() {
+async function bootstrap(seed) {
   const rawHtml = fs.readFileSync(INDEX, 'utf8');
   const appSource = fs.readFileSync(path.join(PROJECT, 'app.js'), 'utf8');
   const cssSource = fs.readFileSync(path.join(PROJECT, 'styles.css'), 'utf8');
@@ -72,6 +72,10 @@ async function bootstrap() {
     win.addEventListener('load', resolve);
   });
 
+  /* `seed` runs against the fresh window before app.js, so a test can pre-load
+     localStorage exactly like a returning visitor's browser would. */
+  if (seed) seed(win);
+
   /* app.js is evaluated at load time, exactly like the deferred <script> would be. */
   win.eval(appSource);
   await sleep(20);
@@ -92,6 +96,7 @@ async function run() {
     'integrity="sha512-+9GoO5OUX2MmPRHUH5dnOY+KGReMLcxywEvQxvAI0y5JxXh/lkz99dKj4xdYfODP3dMFsoZRz4CF/vHcaqa2Ag=="');
   contains('the CDN script is requested with CORS', rawHtml, 'crossorigin="anonymous"');
   ['btn-pdf', 'btn-email', 'btn-whatsapp', 'btn-share', 'btn-print', 'btn-copy', 'btn-new',
+    'btn-save-history', 'btn-history-clear', 'history-card', 'history-list', 'history-count',
     'items', 'invoice', 'field-currency', 'pdf-stage', 'toast'].forEach((id) => {
     check('required element #' + id + ' exists', !!doc.getElementById(id));
   });
@@ -126,7 +131,9 @@ async function run() {
   eq('subtotal starts at zero', roleText('subtotal'), api.formatMoney(0));
   eq('total starts at zero', api.currentTotals().totalCents, 0);
   contains('invoice number is generated', $('[data-role="number"]').textContent, 'COC-' + new Date().getFullYear() + '-');
-  contains('brand name is on the invoice', $('.inv-name').textContent, 'Cocoon Luxury Suites Ogudu');
+  /* The wordmark alone brands the printed page — no name/tagline/branch text. */
+  eq('no brand text block on the invoice', $$('.inv-name, .inv-tagline, .inv-branch').length, 0);
+  check('the wordmark still leads the header', !!$('.inv-brand .inv-logo'));
   eq('default currency is NGN', api.state.meta.currency, 'NGN');
   eq('currency select is populated', $$('#field-currency option').length, 12);
   eq('due date is 14 days after the invoice date', Math.round(
@@ -242,6 +249,95 @@ async function run() {
   doc.getElementById('room-nights').value = '1';
   fire(doc.getElementById('room-nights'), 'input');
 
+  console.log('\n3e. Room catalogue: name, category and rate line up');
+  const catalogue = api.rooms;
+  const groups = api.roomCategories();
+  const roomNames = catalogue.map((entry) => entry.name);
+  eq('catalogue holds the published room list', catalogue.length, 18);
+  eq('every room name is unique', new Set(roomNames).size, roomNames.length);
+  eq('rate card covers every category', groups.length, 6);
+
+  const pickCategory = doc.getElementById('room-category');
+  const pickRoom = doc.getElementById('room-name');
+  const pickRate = doc.getElementById('room-rate');
+  const pickNights = doc.getElementById('room-nights');
+  const categoryOptions = $$('#room-category option');
+  const cardRows = $$('#rate-card .rate-card__item');
+  eq('category picker lists every category', categoryOptions.length, groups.length);
+  eq('rate card has one row per category', cardRows.length, groups.length);
+
+  let priced = 0;
+  groups.forEach((group, index) => {
+    const inCategory = catalogue.filter((entry) => entry.category === group.category);
+    const optionText = group.label + ' (' + (inCategory.length === 1 ? '1 room' : inCategory.length + ' rooms') + ')';
+    const cardText = cardRows[index].textContent;
+    eq(group.label + ': picker value is the category', categoryOptions[index].value, group.category);
+    eq(group.label + ': picker shows its label and room count', categoryOptions[index].textContent, optionText);
+    check(group.label + ': every room carries the category label',
+      inCategory.every((entry) => entry.label === group.label));
+    eq(group.label + ': every room uses the published rate',
+      new Set(inCategory.map((entry) => entry.rate)).size, 1);
+    contains(group.label + ': rate card names the category', cardText, group.label);
+    contains(group.label + ': rate card shows the published rate', cardText, api.formatMoney(group.minRate));
+    contains(group.label + ': rate card counts its rooms', cardText, inCategory.length + ' room');
+
+    pickCategory.value = group.category;
+    fire(pickCategory, 'change');
+    eq(group.label + ': picker offers exactly its rooms',
+      Array.prototype.slice.call(pickRoom.options).map((option) => option.value).join(' | '),
+      inCategory.map((entry) => entry.name).join(' | '));
+
+    inCategory.forEach((entry) => {
+      pickRoom.value = entry.name;
+      fire(pickRoom, 'change');
+      eq(group.label + ' — ' + entry.name + ': loads the published rate', pickRate.value, String(entry.rate));
+      eq(group.label + ' — ' + entry.name + ': line total is rate x nights',
+        doc.getElementById('room-total').textContent, api.formatMoney(entry.rate * Number(pickNights.value)));
+      priced += 1;
+    });
+  });
+  eq('every room in the catalogue was priced from the picker', priced, catalogue.length);
+
+  /* The room left in the picker is billed under its own category, name and rate. */
+  const linesBeforeRoom = api.state.items.length;
+  $('#btn-add-room').click();
+  const billedRoom = api.state.items[api.state.items.length - 1];
+  eq('one more line item was added', api.state.items.length, linesBeforeRoom + 1);
+  eq('the line reads category — room', billedRoom.description, 'Presidential Suite — Iroko');
+  eq('the line carries the published rate', billedRoom.price, 95000);
+  eq('the line carries the picked nights', billedRoom.qty, 1);
+  api.state.items.pop();
+  api.renderItemRows();
+  api.render();
+
+  console.log('\n3f. Branding: the site\'s logo and palette');
+  const headLogo = $('.brand__logo');
+  check('header shows the wordmark', !!headLogo);
+  eq('header logo points at the shipped file', headLogo && headLogo.getAttribute('src'), 'assets/cocoon-logo.png');
+  eq('header logo keeps its intrinsic width', headLogo && headLogo.getAttribute('width'), '130');
+  eq('header logo keeps its intrinsic height', headLogo && headLogo.getAttribute('height'), '48');
+  const favicon = doc.querySelector('link[rel="icon"]');
+  check('the page declares a favicon', !!favicon);
+  eq('favicon is the same wordmark', favicon && favicon.getAttribute('href'), 'assets/cocoon-logo.png');
+  eq('theme colour matches the site header',
+    doc.querySelector('meta[name="theme-color"]').getAttribute('content'), '#020101');
+
+  const invLogo = $('.inv-logo');
+  check('the invoice carries the wordmark', !!invLogo);
+  const invSrc = (invLogo && invLogo.getAttribute('src')) || '';
+  check('invoice logo is an inlined PNG data URI', invSrc.indexOf('data:image/png;base64,') === 0, invSrc.slice(0, 60));
+  eq('invoice logo is byte-identical to assets/cocoon-logo.png',
+    invSrc.replace('data:image/png;base64,', ''),
+    fs.readFileSync(path.join(PROJECT, 'assets', 'cocoon-logo.png')).toString('base64'));
+
+  const css = fs.readFileSync(path.join(PROJECT, 'styles.css'), 'utf8');
+  contains('palette has the site accent gold', css, '--gold-500: #fe801a;');
+  contains('palette has the site deeper gold', css, '--gold-600: #d7981c;');
+  contains('palette has the site header black', css, '--brand-900: #020101;');
+  contains('palette has the site hairline grey', css, '--line: #e5e5e5;');
+  notContains('the old green palette is gone from the stylesheet', css.toLowerCase(), '0f3d33');
+  notContains('the old gold lettering is gone from the stylesheet', css.toLowerCase(), 'e8d9a8');
+
   console.log('\n4. Extra line item with a fractional quantity');
   $('#btn-add-item').click();
   eq('add-item button appends a row', $$('.item').length, 2);
@@ -309,7 +405,11 @@ async function run() {
   console.log('\n9. Untrusted text is escaped');
   setField('billTo.name', '<img src=x onerror="window.__pwned = true">');
   setField('meta.notes', '<script>window.__pwned = true;</script>\nSecond line of notes');
-  eq('no injected elements survive', $$('#invoice script, #invoice img').length, 0);
+  /* The invoice header's inlined wordmark (assets/cocoon-logo.png) is the only
+     trusted <img>; anything else — script tags or injected markup — must vanish. */
+  const stray = Array.prototype.slice.call(doc.querySelectorAll('#invoice script, #invoice img'))
+    .filter((el) => !el.classList.contains('inv-logo'));
+  eq('no injected elements survive', stray.length, 0);
   eq('no injected script ran', win.__pwned, undefined);
   contains('the markup is rendered as literal text', $('.inv-party__name').textContent, '<img src=x');
   contains('multi-line notes are kept', $('#invoice .inv-notes').textContent, 'Second line of notes');
@@ -395,45 +495,52 @@ async function run() {
   contains('share text credits the staff', api.buildShareText({ bold: false }), 'Prepared by: Adaeze O.');
   contains('staff datalist remembers the name', $('#staff-options').innerHTML, 'Adaeze O.');
 
-  /* Picking a saved branch applies its own city/street profile — even when an
-     older version of the app remembered outdated details for that branch. */
-  win.localStorage.setItem('cocoon.hotel.branches.v1', JSON.stringify([
-    { label: 'Gbagada, Lagos', city: 'Gbagada, Lagos, Nigeria',
-      address: '6 Oguntona Crescent, Gbagada', phone: '0807 086 3696',
-      email: 'info@cocoongbagada.com', website: 'cocoongbagada.com' }
+  /* A branch the hotel no longer offers can still sit in a returning device's
+     storage (saved under the older branch key) or in an old draft: it must not
+     be selectable again, and none of its details may reach the Ogudu invoice. */
+  win.localStorage.setItem('cocoon.hotel.branches.v2', JSON.stringify([
+    { label: 'Retired Branch, Lagos', city: 'Retired Branch, Lagos, Nigeria',
+      address: '1 Example Close', phone: '0800 000 0000',
+      email: 'info@example.com', website: 'example.com' }
   ]));
-  eq('branch picker offers only two branches', $$('select#field-branch option').length, 2);
-  contains('branch picker lists Gbagada', $('#field-branch').innerHTML, 'Gbagada, Lagos');
-  setField('hotel.branch', 'Gbagada, Lagos');
-  eq('Gbagada becomes the stored branch', api.state.hotel.branch, 'Gbagada, Lagos');
-  eq('Gbagada city profile applied', api.state.hotel.city, 'Gbagada, Lagos, Nigeria');
-  eq('Gbagada street shipped', api.state.hotel.address, '9, 4/6 Oguntona Crescent, Gbagada Phase 1');
-  eq('Gbagada phone shipped', api.state.hotel.phone, '+234 8070 863696');
-  eq('Gbagada email shipped', api.state.hotel.email, 'info@cocoongbagada.com');
-  eq('Gbagada website shipped', api.state.hotel.website, 'https://cocoongbagada.com/');
-  contains('stale remembered details cannot shadow the shipped profile', api.state.hotel.address, 'Phase 1');
-  eq('Gbagada phone dials as wa.me', api.phoneDigits(api.state.hotel.phone), '2348070863696');
-  contains('sign-off shows the Gbagada branch', $('.inv-signoff__branch').textContent, 'Gbagada, Lagos');
-  contains('document name follows the branch', $('.inv-name').textContent, 'Cocoon Luxury Suites Ogudu');
+  eq('branch picker offers only the Ogudu branch', $$('select#field-branch option').length, 1);
+  notContains('branch picker drops the retired branch', $('#field-branch').innerHTML, 'Retired Branch');
+  notContains('no saved profile survives for the retired branch', JSON.stringify(api.branchOptions()), 'Retired Branch');
+
+  setField('hotel.branch', 'Ogudu GRA, Lagos');
+  eq('Ogudu becomes the stored branch', api.state.hotel.branch, 'Ogudu GRA, Lagos');
+  eq('Ogudu city profile applied', api.state.hotel.city, 'Ogudu GRA, Lagos, Nigeria');
+  eq('Ogudu street shipped', api.state.hotel.address, '2 Adebayo Ogunrombi Close');
+  eq('Ogudu phone shipped', api.state.hotel.phone, '+234 701 449 6106');
+  eq('Ogudu email shipped', api.state.hotel.email, 'info@cocoonogudu.com');
+  eq('Ogudu website shipped', api.state.hotel.website, 'cocoonogudu.com');
+  eq('Ogudu phone dials as wa.me', api.phoneDigits(api.state.hotel.phone), '2347014496106');
+  contains('sign-off shows the Ogudu branch', $('.inv-signoff__branch').textContent, 'Ogudu GRA, Lagos');
+  eq('no brand text block after a branch switch', $$('.inv-name, .inv-tagline, .inv-branch').length, 0);
+  eq('footer holds only the thank-you line', $$('.inv-foot > *').length, 1);
+  contains('footer keeps the thank-you line', $('.inv-foot__thanks').textContent, 'Thank you for staying with');
+  notContains('footer no longer prints the number', $('.inv-foot').textContent, '#' + api.state.meta.number);
+  notContains('footer no longer prints the email', $('.inv-foot').textContent, 'info@cocoonogudu.com');
+  notContains('footer no longer prints the phone', $('.inv-foot').textContent, '+234 701 449 6106');
+  const footRule = (cssSource.match(/\.inv-foot\s*\{[^}]*\}/) || [''])[0];
+  contains('footer line is centred', footRule, 'text-align: center');
 
   setField('hotel.address', '12 Millennium Estate Road');
-  const gbagada = api.branchOptions().filter((entry) => entry.label === 'Gbagada, Lagos')[0];
-  eq('edited street is remembered under Gbagada only', gbagada && gbagada.address, '12 Millennium Estate Road');
-  eq("Ogudu's phone is untouched by the Gbagada edit", api.branchOptions().filter((e) => e.label === 'Ogudu GRA, Lagos')[0].phone, '+234 701 449 6106');
+  eq('Ogudu is the only branch profile on file', api.branchOptions().length, 1);
+  const ogudu = api.branchOptions().filter((entry) => entry.label === 'Ogudu GRA, Lagos')[0];
+  eq('edited street is remembered under Ogudu', ogudu && ogudu.address, '12 Millennium Estate Road');
+  eq('the rest of the Ogudu contact is untouched by the edit', ogudu && ogudu.phone, '+234 701 449 6106');
 
   setField('hotel.branch', 'Ogudu GRA, Lagos');
-  eq('switching back restores the Ogudu street', api.state.hotel.address, '2 Adebayo Ogunrombi Close');
-  eq('switching back restores the Ogudu city', api.state.hotel.city, 'Ogudu GRA, Lagos, Nigeria');
-  eq('switching back restores the Ogudu phone', api.state.hotel.phone, '+234 701 449 6106');
-  eq('switching back restores the Ogudu email', api.state.hotel.email, 'info@cocoonogudu.com');
-  setField('hotel.branch', 'Gbagada, Lagos');
-  eq('switching back restores the Gbagada street', api.state.hotel.address, '12 Millennium Estate Road');
-  eq('Gbagada contact survives the round trip', api.state.hotel.phone, '+234 8070 863696');
-  setField('hotel.branch', 'Ogudu GRA, Lagos');
+  eq('re-picking Ogudu restores the edited street', api.state.hotel.address, '12 Millennium Estate Road');
+  eq('re-picking Ogudu restores the Ogudu city', api.state.hotel.city, 'Ogudu GRA, Lagos, Nigeria');
+  eq('re-picking Ogudu restores the Ogudu phone', api.state.hotel.phone, '+234 701 449 6106');
+  eq('re-picking Ogudu restores the Ogudu email', api.state.hotel.email, 'info@cocoonogudu.com');
 
   await sleep(450);
   contains('staff name saved for next time', win.localStorage.getItem('cocoon.hotel.staff.v1'), 'Adaeze O.');
-  contains('branch profiles saved for next time', win.localStorage.getItem('cocoon.hotel.branches.v2'), '12 Millennium Estate Road');
+  contains('branch profile saved for next time', win.localStorage.getItem('cocoon.hotel.branches.v3'), '12 Millennium Estate Road');
+  notContains('the retired branch is never written back', win.localStorage.getItem('cocoon.hotel.branches.v3'), 'Retired Branch');
 
   $('#btn-new').click();
   eq('staff survives the reset', api.state.hotel.staff, 'Adaeze O.');
@@ -443,6 +550,31 @@ async function run() {
   eq('clearing the name removes the Prepared by line', $$('.inv-signoff__staff').length, 0);
   contains('branch line survives a cleared name', $('.inv-signoff__branch').textContent, 'Ogudu GRA, Lagos');
 
+  /* A saved draft that still names the retired branch carries that branch's
+     street / phone. Loading it must swap in the Ogudu profile instead, so no
+     retired detail is ever printed under the Ogudu flagship. */
+  console.log('\n13c. Retired branch left in an old draft');
+  const legacy = await bootstrap((legacyWin) => {
+    legacyWin.localStorage.setItem('cocoon.invoice.draft.v1', JSON.stringify({
+      meta: { number: 'COC-2025-0042', currency: 'NGN' },
+      hotel: {
+        branch: 'Retired Branch, Lagos', city: 'Retired Branch, Lagos, Nigeria',
+        address: '1 Example Close',
+        phone: '+234 800 000 0000', email: 'info@example.com',
+        website: 'https://example.com/'
+      }
+    }));
+  });
+  const legacyApi = legacy.win.CocoonInvoice;
+  check('the legacy window exposes the API', !!legacyApi);
+  eq('the retired branch falls back to Ogudu', legacyApi.state.hotel.branch, 'Ogudu GRA, Lagos');
+  eq('the retired street is replaced by the Ogudu street', legacyApi.state.hotel.address, '2 Adebayo Ogunrombi Close');
+  eq('the retired phone is replaced by the Ogudu phone', legacyApi.state.hotel.phone, '+234 701 449 6106');
+  eq('the retired email is replaced by the Ogudu email', legacyApi.state.hotel.email, 'info@cocoonogudu.com');
+  notContains('the loaded state never mentions the retired branch', JSON.stringify(legacyApi.state.hotel), 'Retired Branch');
+  notContains('the rendered invoice never mentions the retired branch', legacy.win.document.body.textContent, 'Retired Branch');
+  legacy.win.close();
+
   console.log('\n13. New invoice & restore defaults');
   const previousNumber = api.state.meta.number;
   $('#btn-new').click();
@@ -450,10 +582,140 @@ async function run() {
   eq('tax rate reset', api.currentTotals().taxRate, 0);
   eq('back to one blank line item', api.state.items.length, 1);
   check('a fresh invoice number is issued', api.state.meta.number !== previousNumber, api.state.meta.number);
-  contains('hotel details survive the reset', $('.inv-name').textContent, 'Cocoon Luxury Suites Ogudu');
+  eq('hotel details survive the reset', api.state.hotel.name, 'Cocoon Luxury Suites Ogudu');
+  eq('the brand text block stays off the reset invoice', $$('.inv-name, .inv-tagline, .inv-branch').length, 0);
   setField('hotel.phone', '+234 000 000 0000');
   $('#btn-restore-hotel').click();
   eq('restore defaults brings the shipped phone back', api.state.hotel.phone, '+234 701 449 6106');
+
+  console.log('\n14. Invoice & receipt history');
+  check('history card is on the page', !!$('#history-card'));
+  eq('history badge starts at zero', $('#history-count').textContent, '0 documents');
+  contains('the empty state explains what to do', $('#history-list').textContent, 'Nothing filed yet');
+  contains('the empty state names the save button', $('#history-list').textContent, 'Save to history');
+  check('save button is wired', !!$('#btn-save-history'));
+  check('clear button is wired', !!$('#btn-history-clear'));
+  eq('one blank line to file', $$('.item').length, 1);
+
+  /* File the working document. */
+  setField('meta.number', 'COC-2026-0101');
+  setField('billTo.name', 'Chidi Okonkwo');
+  const hDesc = $('.item .item__desc');
+  hDesc.value = 'Suite accommodation';
+  fire(hDesc, 'input');
+  const hPrice = $('.item .item__price');
+  hPrice.value = '50000';
+  fire(hPrice, 'input');
+  eq('the working line is 50,000 with no tax or discount', api.currentTotals().totalCents, 5000000);
+  $('#btn-save-history').click();
+  eq('one document is filed', $$('#history-list .history__item').length, 1);
+  eq('badge counts it', $('#history-count').textContent, '1 document');
+  const filed = JSON.parse(win.localStorage.getItem('cocoon.history.v1'));
+  eq('snapshot written to storage', filed.length, 1);
+  eq('snapshot typed as an invoice', filed[0].docType, 'invoice');
+  eq('snapshot carries the guest', filed[0].guest, 'Chidi Okonkwo');
+  eq('snapshot carries the live total', filed[0].totalCents, 5000000);
+  check('snapshot keeps the full editor state',
+    !!(filed[0].state && filed[0].state.meta && filed[0].state.billTo && filed[0].state.items));
+  contains('row shows the number', $('#history-list .history__title').textContent, 'COC-2026-0101');
+  contains('row shows the guest', $('#history-list .history__title').textContent, 'Chidi Okonkwo');
+  contains('row shows the total', $('#history-list .history__total').textContent, api.formatMoney(50000));
+  contains('row labels the type', $('#history-list .history__type').textContent, 'Invoice');
+  contains('row shows the line count', $('#history-list .history__meta').textContent, '1 item');
+  contains('saving confirms with a toast', $('#toast').textContent, 'Saved invoice COC-2026-0101 to history');
+
+  /* Re-filing the same number updates its entry instead of piling up. */
+  setField('billTo.name', 'Chidi Okonkwo (edited)');
+  $('#btn-save-history').click();
+  eq('re-filing does not pile up copies', $$('#history-list .history__item').length, 1);
+  eq('storage still holds one entry', JSON.parse(win.localStorage.getItem('cocoon.history.v1')).length, 1);
+  contains('the entry carries the edit', $('#history-list .history__title').textContent, 'Chidi Okonkwo (edited)');
+
+  /* The same stay can be filed as a receipt as well. */
+  setField('meta.docType', 'receipt');
+  contains('the save button follows the switch', $('[data-role-label="save-history-btn"]').textContent,
+    'Save receipt to history');
+  $('#btn-save-history').click();
+  eq('the receipt files beside its invoice', $$('#history-list .history__item').length, 2);
+  eq('badge counts both', $('#history-count').textContent, '2 documents');
+  check('receipt row carries the receipt badge', !!$('#history-list .history__type--receipt'));
+  contains('the newest entry is listed first', $$('#history-list .history__type')[0].textContent, 'Receipt');
+  eq('both types are stored', JSON.parse(win.localStorage.getItem('cocoon.history.v1'))
+    .map((entry) => entry.docType).join(','), 'receipt,invoice');
+  setField('meta.docType', 'invoice');
+
+  /* Open puts a filed document back into the editor. */
+  setField('billTo.name', 'WRECKED');
+  setField('meta.number', 'COC-9999-9999');
+  const wreckDesc = $('.item .item__desc');
+  wreckDesc.value = '';
+  fire(wreckDesc, 'input');
+  $$('#history-list [data-history-action="open"]')[1].click();
+  eq('open restores the guest', api.state.billTo.name, 'Chidi Okonkwo (edited)');
+  eq('open restores the number', api.state.meta.number, 'COC-2026-0101');
+  eq('open restores the document type', api.state.meta.docType, 'invoice');
+  eq('open restores the line items', api.state.items[0].description, 'Suite accommodation');
+  eq('the editor form follows', $('[data-path="billTo.name"]').value, 'Chidi Okonkwo (edited)');
+  contains('the restored invoice renders', $('.inv-title').textContent, 'Invoice');
+  contains('opening confirms with a toast', $('#toast').textContent, 'Opened invoice COC-2026-0101');
+
+  /* Duplicate issues a fresh copy without touching the archive. */
+  $$('#history-list [data-history-action="duplicate"]')[1].click();
+  check('duplicate issues a fresh number', api.state.meta.number !== 'COC-2026-0101', api.state.meta.number);
+  eq('duplicate keeps the guest', api.state.billTo.name, 'Chidi Okonkwo (edited)');
+  eq('duplicate keeps the lines', api.state.items[0].description, 'Suite accommodation');
+  contains('duplicating confirms with a toast', $('#toast').textContent, 'Duplicated as invoice');
+  eq('duplicate is not auto-filed', $$('#history-list .history__item').length, 2);
+
+  /* Delete removes one entry. */
+  $$('#history-list [data-history-action="delete"]')[0].click();
+  eq('the receipt row is removed', $$('#history-list .history__item').length, 1);
+  eq('storage follows the delete', JSON.parse(win.localStorage.getItem('cocoon.history.v1')).length, 1);
+  eq('badge follows the delete', $('#history-count').textContent, '1 document');
+  contains('deleting confirms with a toast', $('#toast').textContent, 'removed from history');
+
+  /* Rows escape stored text, exactly like the invoice does. */
+  setField('billTo.name', '<b id="hist-pwn">x</b>');
+  $('#btn-save-history').click();
+  check('the history row does not execute stored markup', !doc.getElementById('hist-pwn'));
+  contains('stored markup is shown as literal text', $('#history-list .history__title').textContent,
+    '<b id="hist-pwn">');
+
+  /* Clear all empties the archive. */
+  $('#btn-history-clear').click();
+  eq('the list is empty again', $$('#history-list .history__item').length, 0);
+  eq('storage is emptied', JSON.parse(win.localStorage.getItem('cocoon.history.v1')).length, 0);
+  eq('badge is back to zero', $('#history-count').textContent, '0 documents');
+  contains('clearing confirms with a toast', $('#toast').textContent, 'History cleared');
+
+  /* The archive is capped at MAX_HISTORY (100). */
+  const seeded = [];
+  for (let i = 0; i < 105; i += 1) {
+    seeded.push({
+      id: 'seed-' + i, savedAt: Date.now(), docType: 'invoice',
+      number: 'COC-1999-' + String(1000 + i), date: '1999-01-01',
+      guest: 'Guest ' + i, totalCents: 0, currency: 'NGN',
+      state: { hotel: {}, meta: {}, billTo: {}, items: [] }
+    });
+  }
+  win.localStorage.setItem('cocoon.history.v1', JSON.stringify(seeded));
+  $('#btn-save-history').click();
+  eq('the archive is capped at 100', JSON.parse(win.localStorage.getItem('cocoon.history.v1')).length, 100);
+  eq('badge shows the cap', $('#history-count').textContent, '100 documents');
+  eq('the list renders the capped archive', $$('#history-list .history__item').length, 100);
+  contains('the current document leads the list', $('#history-list .history__title').textContent,
+    api.state.meta.number);
+
+  /* A corrupted archive must never stop the app from booting. */
+  const broken = await bootstrap((w) => w.localStorage.setItem('cocoon.history.v1', '{not json'));
+  const brokenApi = broken.win.CocoonInvoice;
+  check('the app boots with a corrupted history', !!(brokenApi && brokenApi.state));
+  eq('a corrupted history reads as empty',
+    brokenApi && brokenApi.readHistory ? brokenApi.readHistory().length : -1, 0);
+  eq('the badge shows the empty archive', broken.doc.getElementById('history-count').textContent, '0 documents');
+  contains('the empty state still renders', broken.doc.getElementById('history-list').textContent,
+    'Nothing filed yet');
+  broken.win.close();
 
   console.log('\n----------------------------------------------');
   finish();
